@@ -1,8 +1,8 @@
 {
-  "name": "DevBot — Developer Knowledge AI",
+  "name": "DevBot \u2014 Developer Knowledge AI",
   "short_name": "DevBot",
-  "description": "آپ کا ذاتی AI Developer Assistant",
-  "start_url": "./devbot.html",
+  "description": "\u0622\u067e \u06a9\u0627 \u0630\u0627\u062a\u06cc AI Developer Assistant",
+  "start_url": "./index.html",
   "display": "standalone",
   "background_color": "#0d0f1a",
   "theme_color": "#7c6aff",
@@ -22,13 +22,22 @@
       "purpose": "any maskable"
     }
   ],
-  "categories": ["developer", "utilities", "productivity"],
+  "categories": [
+    "developer",
+    "utilities",
+    "productivity"
+  ],
   "shortcuts": [
     {
-      "name": "نیا سوال",
-      "short_name": "سوال",
+      "name": "\u0646\u06cc\u0627 \u0633\u0648\u0627\u0644",
+      "short_name": "\u0633\u0648\u0627\u0644",
       "url": "./devbot.html",
-      "icons": [{ "src": "icon-192.png", "sizes": "192x192" }]
+      "icons": [
+        {
+          "src": "icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
     }
   ]
 }
