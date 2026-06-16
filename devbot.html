@@ -393,7 +393,7 @@ body {
   </div>
 
   <!-- SETUP MODAL -->
-  <div id="setupModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:200;display:flex;align-items:center;justify-content:center;padding:20px;">
+  <div id="setupModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:200;align-items:center;justify-content:center;padding:20px;">
     <div style="background:var(--s1);border:1px solid var(--border);border-radius:18px;padding:24px;max-width:360px;width:100%;">
       <div style="font-size:24px;text-align:center;margin-bottom:4px;">🧠</div>
       <h2 style="text-align:center;font-size:16px;margin-bottom:4px;">اپنا DevBot سیٹ کریں</h2>
@@ -882,38 +882,40 @@ function hideSetup() {
 }
 
 async function saveSetup() {
-  profile.name    = document.getElementById('setupName').value.trim();
-  profile.nick    = document.getElementById('setupNick').value.trim();
-  profile.ghUser  = document.getElementById('setupGHUser').value.trim();
-  profile.ghRepo  = document.getElementById('setupGHRepo').value.trim();
-  profile.ghToken = document.getElementById('setupGHToken').value.trim();
+  try {
+    profile.name    = document.getElementById('setupName').value.trim();
+    profile.nick    = document.getElementById('setupNick').value.trim();
+    profile.ghUser  = document.getElementById('setupGHUser').value.trim();
+    profile.ghRepo  = document.getElementById('setupGHRepo').value.trim();
+    profile.ghToken = document.getElementById('setupGHToken').value.trim();
 
-  if (!profile.name) { alert('نام ضروری ہے'); return; }
+    if (!profile.name) { alert('نام ضروری ہے'); return; }
 
-  // Save to localStorage first
-  localStorage.setItem('devbot_profile', JSON.stringify(profile));
-  // Also update token field
-  if (profile.ghToken) {
-    document.getElementById('ghToken').value = profile.ghToken;
-    localStorage.setItem('devbot_gh_token', profile.ghToken);
+    localStorage.setItem('devbot_profile', JSON.stringify(profile));
+    if (profile.ghToken) {
+      document.getElementById('ghToken').value = profile.ghToken;
+      localStorage.setItem('devbot_gh_token', profile.ghToken);
+    }
+
+    hideSetup();
+    updateHeader();
+    document.getElementById('sBtn').disabled = false;
+    addMsg('bot', `السلام علیکم ${profile.nick||profile.name}! مجھے خوشی ہے کہ آپ نے مجھے اپنا ذاتی AI بنایا۔ کیا مدد چاہیے؟`);
+
+    if (profile.ghToken && profile.ghUser && profile.ghRepo) {
+      addInfo('⏳ GitHub پر profile save ہو رہا ہے...');
+      const ok = await ghSaveFile('devbot-data/profile.json', JSON.stringify(profile, null, 2), 'DevBot profile');
+      if (ok) {
+        addInfo('GitHub پر محفوظ — پرانا ڈیٹا چیک ہو رہا ہے...');
+        await ghLoadAllData();
+      } else {
+        addInfo('GitHub save نہیں ہوا — Token میں repo permission چیک کریں');
+      }
+    }
+  } catch(e) {
+    console.error(e);
+    alert('خطا آئی: ' + e.message);
   }
-
-  hideSetup();
-
-  // Update header
-  updateHeader();
-
-  // Save to GitHub if configured
-  if (profile.ghToken && profile.ghUser && profile.ghRepo) {
-    addInfo('⏳ GitHub پر profile save ہو رہا ہے…');
-    await ghSaveFile('devbot-data/profile.json', JSON.stringify(profile, null, 2), 'DevBot profile update');
-    addInfo('✅ Profile GitHub پر محفوظ!');
-    // Now load saved URLs from GitHub
-    await ghLoadAllData();
-  }
-
-  addMsg('bot', `السلام علیکم ${profile.nick||profile.name}! میں آپ کا ذاتی DevBot ہوں۔ آج میں آپ کی کیا مدد کر سکتا ہوں؟`);
-  document.getElementById('sBtn').disabled = false;
 }
 
 function updateHeader() {
