@@ -96,6 +96,18 @@ def save_to_github(token, repo, path, content, message=None):
     else:
         content_bytes = content
     b64 = base64.b64encode(content_bytes).decode()
+    # Fix: remove non-ASCII, spaces, special chars from path
+    safe_path = ''
+    for part in path.split('/'):
+        safe_part = ''
+        for ch in part:
+            if ch.isascii() and (ch.isalnum() or ch in '-_.'):
+                safe_part += ch
+            elif ch == ' ':
+                safe_part += '_'
+            # skip non-ASCII (Urdu etc)
+        safe_path += ('/' if safe_path else '') + (safe_part or 'file')
+    path = safe_path
     sha = get_file_sha(token, repo, path)
     fname = path.split('/')[-1]
     body = {'message': message or ('Add: ' + fname), 'content': b64}
@@ -213,7 +225,8 @@ select.inp{cursor:pointer;}
 .btn:not(:disabled):hover{opacity:.85;}
 .rw{display:flex;gap:7px;} .rw .btn{flex:1;}
 .dz{border:2px dashed var(--border);border-radius:11px;padding:20px 14px;text-align:center;cursor:pointer;position:relative;margin-bottom:9px;}
-.dz:hover{border-color:var(--ac);background:rgba(108,99,255,.05);}
+.dz:hover,.dz.drag-over{border-color:var(--ac);background:rgba(108,99,255,.08);}
+.dz.drag-over{border-style:solid;transform:scale(1.01);}
 .dz input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%;}
 .di2{font-size:26px;margin-bottom:4px;}
 .dt{font-size:13px;font-weight:700;}
@@ -346,11 +359,14 @@ select.inp{cursor:pointer;}
 <div class="pg" id="pg-files">
   <div class="card">
     <div class="ct" style="color:var(--a3)">📄 Upload Files</div>
-    <div class="dz" id="fileDz">
+    <div class="dz" id="fileDz"
+      ondragover="dzOver(event,'fileDz')"
+      ondragleave="dzLeave('fileDz')"
+      ondrop="dzDropFiles(event)">
       <input type="file" id="fileInp" multiple onchange="prevFiles(this.files,'f')">
       <div class="di2">📄</div>
-      <div class="dt">Drop files or click</div>
-      <div class="ds">txt · md · json · csv · py · js · zip</div>
+      <div class="dt">Drop files here or click</div>
+      <div class="ds">txt · md · json · csv · py · js · zip — any file</div>
     </div>
     <div class="fl" id="fileList"></div>
     <div class="f">
@@ -367,10 +383,14 @@ select.inp{cursor:pointer;}
 <div class="pg" id="pg-folder">
   <div class="card">
     <div class="ct" style="color:var(--gn)">📂 Upload Full Folder</div>
-    <div class="dz" onclick="document.getElementById('folderInp').click()">
+    <div class="dz" id="folderDz"
+      ondragover="dzOver(event,'folderDz')"
+      ondragleave="dzLeave('folderDz')"
+      ondrop="dzDropFolder(event)"
+      onclick="document.getElementById('folderInp').click()">
       <input type="file" id="folderInp" webkitdirectory multiple onchange="prevFiles(this.files,'folder')">
       <div class="di2">📂</div>
-      <div class="dt">Click to select folder</div>
+      <div class="dt">Drop folder here or click</div>
       <div class="ds">All files → GitHub with folder structure</div>
     </div>
     <div class="fl" id="folderList"></div>
@@ -483,6 +503,107 @@ select.inp{cursor:pointer;}
 
 <script>
 var fileQ = [], folderQ = [], stats = {s:0, f:0, sz:0};
+
+// == DRAG & DROP ==
+function dzOver(e, id) {
+  e.preventDefault();
+  e.stopPropagation();
+  document.getElementById(id).classList.add('drag-over');
+}
+function dzLeave(id) {
+  document.getElementById(id).classList.remove('drag-over');
+}
+function dzDropFiles(e) {
+  e.preventDefault();
+  e.stopPropagation();
+  document.getElementById('fileDz').classList.remove('drag-over');
+  var files = e.dataTransfer.files;
+  if (files && files.length) {
+    prevFiles(files, 'f');
+  }
+}
+// Folder drag-drop — store files with their paths separately
+var folderDndFiles = []; // {file, path}
+
+function dzDropFolder(e) {
+  e.preventDefault();
+  e.stopPropagation();
+  document.getElementById('folderDz').classList.remove('drag-over');
+  folderDndFiles = [];
+  var items = e.dataTransfer.items;
+  if (!items || !items.length) {
+    // Fallback: plain files
+    if (e.dataTransfer.files && e.dataTransfer.files.length) {
+      var arr = Array.from(e.dataTransfer.files);
+      folderDndFiles = arr.map(function(f){ return {file:f, path:f.name}; });
+      showFolderDnd(folderDndFiles);
+    }
+    return;
+  }
+  var pending = 0;
+  var done = false;
+  function checkDone() {
+    if (pending === 0 && done) showFolderDnd(folderDndFiles);
+  }
+  function scanEntry(entry, basePath) {
+    if (!entry) return;
+    if (entry.isFile) {
+      pending++;
+      entry.file(function(file) {
+        folderDndFiles.push({file: file, path: basePath + file.name});
+        pending--;
+        checkDone();
+      }, function(err) {
+        pending--;
+        checkDone();
+      });
+    } else if (entry.isDirectory) {
+      var reader = entry.createReader();
+      var readAll = function() {
+        pending++;
+        reader.readEntries(function(entries) {
+          pending--;
+          if (!entries.length) { checkDone(); return; }
+          for (var i=0; i<entries.length; i++) {
+            scanEntry(entries[i], basePath + entry.name + '/');
+          }
+          readAll(); // read again in case > 100 entries
+        }, function() { pending--; checkDone(); });
+      };
+      readAll();
+    }
+  }
+  for (var i=0; i<items.length; i++) {
+    var entry = null;
+    if (items[i].webkitGetAsEntry) entry = items[i].webkitGetAsEntry();
+    else if (items[i].getAsEntry) entry = items[i].getAsEntry();
+    if (entry) {
+      scanEntry(entry, '');
+    } else if (items[i].kind === 'file') {
+      var f = items[i].getAsFile();
+      if (f) folderDndFiles.push({file:f, path:f.name});
+    }
+  }
+  done = true;
+  checkDone();
+}
+
+function showFolderDnd(items) {
+  if (!items.length) {
+    document.getElementById('folderPT').textContent = 'No files found in folder';
+    return;
+  }
+  var box = document.getElementById('folderList');
+  var html = '';
+  var show = items.slice(0, 10);
+  for (var i=0; i<show.length; i++) {
+    html += '<div class="fi"><span>📄</span><span class="fn">' + show[i].path + '</span><span class="fsz">' + fsize(show[i].file.size) + '</span></div>';
+  }
+  if (items.length > 10) html += '<div class="li inf" style="padding:3px 7px">...' + (items.length-10) + ' more</div>';
+  box.innerHTML = html;
+  document.getElementById('folderBtn').disabled = false;
+  document.getElementById('folderPT').textContent = items.length + ' files ready';
+}
 var reposCache = [];
 
 // == NAV ==
@@ -881,28 +1002,43 @@ function doFiles() {
 }
 
 function doFolder() {
-  if (!folderQ.length) return;
   var override = document.getElementById('folderName').value.trim();
+  // Use DnD files if available, else input files
+  var items = [];
+  if (folderDndFiles.length) {
+    for (var j=0; j<folderDndFiles.length; j++) {
+      var p = folderDndFiles[j].path;
+      var parts = p.split('/');
+      if (override && parts.length > 0) parts[0] = override;
+      items.push({file: folderDndFiles[j].file, path: parts.join('/')});
+    }
+  } else if (folderQ.length) {
+    for (var j=0; j<folderQ.length; j++) {
+      var f = folderQ[j];
+      var relPath = f.webkitRelativePath || f.name;
+      var parts = relPath.split('/');
+      if (override && parts.length > 0) parts[0] = override;
+      items.push({file: f, path: parts.join('/')});
+    }
+  }
+  if (!items.length) return;
   document.getElementById('folderBtn').disabled = true;
   document.getElementById('folderPW').style.display = 'block';
   var i = 0;
   function next() {
-    if (i >= folderQ.length) {
+    if (i >= items.length) {
       document.getElementById('folderPB').style.width = '100%';
-      document.getElementById('folderPT').textContent = 'Done!';
+      document.getElementById('folderPT').textContent = 'Done! ' + i + ' files uploaded';
       document.getElementById('folderBtn').disabled = false;
-      folderQ = []; document.getElementById('folderList').innerHTML = '';
+      folderQ = []; folderDndFiles = [];
+      document.getElementById('folderList').innerHTML = '';
       updateStats();
       setTimeout(function(){document.getElementById('folderPW').style.display='none';}, 2000);
       return;
     }
-    document.getElementById('folderPB').style.width = Math.floor((i/folderQ.length)*100) + '%';
-    document.getElementById('folderPT').textContent = (i+1)+'/'+folderQ.length+': '+folderQ[i].name;
-    var f = folderQ[i];
-    var relPath = f.webkitRelativePath || f.name;
-    var parts = relPath.split('/');
-    if (override && parts.length > 0) parts[0] = override;
-    uploadFile(f, null, parts.join('/'), function() { i++; setTimeout(next, 150); });
+    document.getElementById('folderPB').style.width = Math.floor((i/items.length)*100) + '%';
+    document.getElementById('folderPT').textContent = (i+1)+'/'+items.length+': '+items[i].file.name;
+    uploadFile(items[i].file, null, items[i].path, function() { i++; setTimeout(next, 150); });
   }
   next();
 }
